@@ -67,8 +67,9 @@ Running `make` without a target also displays help.
 | `make lint` | `golangci-lint run` | Run the configured linters |
 
 Run `make verify` to check formatting, tests, vet, lint, and build together.
-It does not reformat source files. There are no test files yet; a successful
-`make test` currently checks package compilation, not behavioral coverage.
+It does not reformat source files. The CLI smoke test builds an executable in a
+temporary directory and checks that the root invocation exits successfully,
+prints the documented name and tagline to stdout, and leaves stderr empty.
 
 The configuration uses only gofmt for formatting and explicitly enables
 `errcheck`, `govet`, `ineffassign`, `staticcheck`, and `unused` for error handling,
