@@ -40,6 +40,41 @@ go build ./cmd/prolane
 
 This creates `prolane` on Unix-like systems or `prolane.exe` on Windows.
 
+## Development commands
+
+In addition to Go, install [GNU Make](https://www.gnu.org/software/make/) and
+[golangci-lint v2.13.2](https://github.com/golangci/golangci-lint/releases/tag/v2.13.2).
+Use the published golangci-lint binary for your operating system and architecture,
+and put its executable on `PATH`. See the
+[installation instructions](https://golangci-lint.run/docs/welcome/install/local/)
+for platform-specific options. Use this version for reproducible lint results.
+
+On Windows, use a native GNU Make build from your package manager and make sure
+`make.exe`, `go.exe`, and `golangci-lint.exe` are on `PATH`. The recipes work from
+PowerShell or Command Prompt without requiring Bash.
+
+From the repository root, run `make help` to list the available commands.
+Running `make` without a target also displays help.
+
+| Command | Equivalent without Make | Purpose |
+| --- | --- | --- |
+| `make build` | `go build ./cmd/prolane` | Build the CLI |
+| `make run` | `go run ./cmd/prolane` | Run the CLI |
+| `make fmt` | `golangci-lint fmt` | Apply gofmt formatting |
+| `make fmt-check` | `golangci-lint fmt --diff` | Fail on formatting differences without rewriting files |
+| `make test` | `go test ./...` | Run tests |
+| `make vet` | `go vet ./...` | Run Go static analysis |
+| `make lint` | `golangci-lint run` | Run the configured linters |
+
+Run `make verify` to check formatting, tests, vet, lint, and build together.
+It does not reformat source files. There are no test files yet; a successful
+`make test` currently checks package compilation, not behavioral coverage.
+
+The configuration uses only gofmt for formatting and explicitly enables
+`errcheck`, `govet`, `ineffassign`, `staticcheck`, and `unused` for error handling,
+correctness, ineffective assignments, and unused code. As behavior grows, add
+checks to address concrete risks.
+
 ## First usable milestone (planned)
 
 The first usable milestone focuses on HTTP:
