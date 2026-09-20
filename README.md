@@ -71,6 +71,10 @@ It does not reformat source files. The CLI smoke test builds an executable in a
 temporary directory and checks that the root invocation exits successfully,
 prints the documented name and tagline to stdout, and leaves stderr empty.
 
+The [Quality workflow](.github/workflows/quality.yml) is configured to run
+`make verify` on Ubuntu for pull requests and pushes to `main`. It uses the Go
+version from `go.mod` and the same golangci-lint version documented above.
+
 The configuration uses only gofmt for formatting and explicitly enables
 `errcheck`, `govet`, `ineffassign`, `staticcheck`, and `unused` for error handling,
 correctness, ineffective assignments, and unused code. As behavior grows, add
