@@ -1,0 +1,28 @@
+name: Feature request
+description: Propose a focused improvement to Prolane.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues and read the [project scope](https://github.com/wikiccu/prolane/blob/main/README.md) before proposing work.
+        For suspected vulnerabilities, follow the [security policy](https://github.com/wikiccu/prolane/blob/main/SECURITY.md) instead of this form.
+        Keep examples free of credentials, personal information, and sensitive traffic.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: Describe the task you are trying to accomplish and the limitation you encounter.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the smallest useful improvement and the behavior you would expect.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and tradeoffs
+      description: Optional workarounds or alternatives, and any relevant compatibility, performance, or privacy concerns.
