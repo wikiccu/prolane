@@ -80,6 +80,10 @@ The configuration uses only gofmt for formatting and explicitly enables
 correctness, ineffective assignments, and unused code. As behavior grows, add
 checks to address concrete risks.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, and review guidance.
+
 ## First usable milestone (planned)
 
 The first usable milestone focuses on HTTP:
