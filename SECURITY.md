@@ -1,7 +1,5 @@
 # Security policy
 
-> Draft: the private reporting channel needs maintainer confirmation.
-
 ## Project status and supported versions
 
 Prolane is in its foundation stage and has no published releases. The current
@@ -17,7 +15,18 @@ Do not disclose suspected vulnerability details in public issues, pull requests,
 or discussions. Use a private report for issues that could compromise Prolane,
 its development workflow, or data it handles.
 
-Include only the information needed to investigate:
+GitHub private vulnerability reporting is not currently enabled for this
+repository, and no dedicated security email address is published.
+
+To arrange a private report, open an [issue](https://github.com/wikiccu/prolane/issues/new)
+titled `Request for a private security contact`. Include only a request for a
+private reporting channel. Do not include affected components, impact,
+reproduction steps, logs, screenshots, or a proof of concept in that public
+issue. Wait for the maintainer to provide a private channel, then send the report
+through that channel. This follows [GitHub's guidance for repositories without
+private reporting](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/report-privately).
+
+In the private report, include only the information needed to investigate:
 
 - The affected commit and relevant operating system and Go version.
 - A description of the issue, its potential impact, and any required conditions.
