@@ -1,4 +1,4 @@
-.PHONY: help build run fmt fmt-check test vet lint verify
+.PHONY: help build run fmt fmt-check test vet lint vuln secrets verify
 
 help:
 	@echo make build     - Build the CLI
@@ -8,6 +8,8 @@ help:
 	@echo make test      - Run Go tests
 	@echo make vet       - Run Go static analysis
 	@echo make lint      - Run the configured linters
+	@echo make vuln      - Scan Go code for known vulnerabilities
+	@echo make secrets   - Scan Git history for secrets with redacted output
 	@echo make verify    - Check formatting, tests, vet, lint, and build
 
 build:
@@ -30,5 +32,11 @@ vet:
 
 lint:
 	golangci-lint run
+
+vuln:
+	govulncheck ./...
+
+secrets:
+	gitleaks git --redact --verbose --no-banner --log-opts="--all --full-history -m"
 
 verify: fmt-check test vet lint build

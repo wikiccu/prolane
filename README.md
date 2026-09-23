@@ -80,6 +80,34 @@ The configuration uses only gofmt for formatting and explicitly enables
 correctness, ineffective assignments, and unused code. As behavior grows, add
 checks to address concrete risks.
 
+### Security checks
+
+The [Security workflow](.github/workflows/security.yml) runs separate
+[govulncheck](https://go.dev/doc/security/vuln/) and
+[Gitleaks](https://github.com/gitleaks/gitleaks) jobs on Ubuntu for pull requests,
+pushes to `main`, weekly on Mondays at 05:23 UTC, and manual runs. Findings fail
+the corresponding job. These scans are separate from `make verify`.
+
+To run the same checks locally, install the pinned tools and put your Go binary
+installation directory (`go env GOBIN`, or `bin` under `go env GOPATH` when unset)
+on `PATH`:
+
+```sh
+go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+go install github.com/zricethezav/gitleaks/v8@v8.30.1
+make vuln
+make secrets
+```
+
+Without Make, run `govulncheck ./...` and
+`gitleaks git --redact --verbose --no-banner --log-opts="--all --full-history -m"`.
+Govulncheck checks reachable known vulnerabilities for the active Go version and
+build platform using the current Go vulnerability database. Gitleaks scans all
+locally available Git history, including merge changes, with its default rules
+and redacted output. CI fetches full history; use a full clone locally for the
+same coverage. To scan uncommitted files before committing, also run
+`gitleaks dir --redact --verbose --no-banner .`.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, and review guidance.
