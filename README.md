@@ -84,6 +84,11 @@ checks to address concrete risks.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, and review guidance.
 
+## Security
+
+See [SECURITY.md](SECURITY.md) for supported code, vulnerability reporting, and
+sensitive information handling. Do not disclose vulnerabilities in public issues.
+
 ## First usable milestone (planned)
 
 The first usable milestone focuses on HTTP:

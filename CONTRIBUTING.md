@@ -17,8 +17,8 @@ covering failure cases, testing, and relevant privacy or performance concerns
 before implementing a large change.
 
 Do not post suspected vulnerability details, credentials, or sensitive traffic
-in public issues or pull requests. A dedicated security reporting policy has not
-yet been published.
+in public issues or pull requests. Follow the [security policy](SECURITY.md) for
+vulnerability reporting and sensitive information handling.
 
 ## Set up development
 
