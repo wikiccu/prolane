@@ -108,6 +108,32 @@ and redacted output. CI fetches full history; use a full clone locally for the
 same coverage. To scan uncommitted files before committing, also run
 `gitleaks dir --redact --verbose --no-banner .`.
 
+### Dependency updates
+
+[Renovate](https://docs.renovatebot.com/) is configured in
+[.github/renovate.json](.github/renovate.json) to propose updates for Go modules,
+GitHub Actions, golangci-lint, govulncheck, and Gitleaks. Tool versions in this
+README are updated alongside CI. The minimum Go version remains a deliberate
+maintainer decision.
+
+Routine update branches may be created on Mondays (UTC), with at most three
+regular update pull requests open at once. Minor and patch updates are grouped
+separately for Go modules, Actions, and development tools; Actions digest updates
+join the Actions group. Major updates stay outside these groups. Action references
+remain pinned to commit SHAs. All updates require maintainer review and merging.
+
+The maintainer must [install or configure the Renovate GitHub App](https://docs.renovatebot.com/getting-started/installing-onboarding/)
+for `wikiccu/prolane` and push this configuration to `main` to activate it.
+Committing the file alone does not install the app. Check Renovate's Dependency
+Dashboard for pending updates and configuration errors after activation.
+
+GitHub vulnerability-alert fixes bypass the routine schedule and PR limits.
+This requires the dependency graph and Dependabot alerts to be enabled, with
+Renovate granted read access to those alerts, as described in the
+[Renovate vulnerability-alert documentation](https://docs.renovatebot.com/configuration-options/#vulnerabilityalerts).
+Govulncheck findings still need maintainer triage; they do not automatically
+become Renovate security pull requests.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, and review guidance.
