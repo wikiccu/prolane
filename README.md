@@ -12,7 +12,8 @@ Those comparisons should provide reproducible evidence for deployment decisions.
 ## Current status
 
 **Implemented:** a Go module and a CLI entrypoint that prints the project name
-and tagline. The CLI does not yet implement flags or subcommands.
+and tagline, root help, and a `record` command with help and argument validation.
+The recorder does not yet forward traffic or write recordings.
 
 **Planned:** HTTP recording, replay, baseline/candidate comparison, and
 deterministic verification results. Prolane cannot yet verify a software change.
@@ -39,6 +40,33 @@ go build ./cmd/prolane
 ```
 
 This creates `prolane` on Unix-like systems or `prolane.exe` on Windows.
+
+## Recorder command (in progress)
+
+Show the recorder options:
+
+```sh
+go run ./cmd/prolane record --help
+```
+
+| Option | Default | Accepted value |
+| --- | --- | --- |
+| `--listen` | `127.0.0.1:8080` | A loopback IP with a numeric port from 1 to 65535; bracket IPv6 addresses, such as `[::1]:8080` |
+| `--target` | Required | An absolute HTTP or HTTPS URL with a host; a base path is allowed, credentials/query/fragment are rejected, and an explicit port must be from 1 to 65535 |
+| `--output` | Required | A nonblank recording file path; filesystem checks and creation are deferred until persistence is implemented |
+
+For example, using the built executable:
+
+```sh
+prolane record --target http://127.0.0.1:3000 --output ./traffic.jsonl
+```
+
+Currently, valid options produce a message on stderr that recording is not
+implemented and exit with code 1. The command does not open a listener, contact
+the target, or create an output file. Unknown commands, invalid options, and
+positional recorder arguments exit with code 2. Root invocation and help exit
+with code 0; help uses stdout. These are current CLI behaviors, not verification
+PASS/FAIL semantics. To show root help, use `prolane --help`.
 
 ## Development commands
 
@@ -156,6 +184,9 @@ The first usable milestone focuses on HTTP:
 
 Database migration verification, container and Kubernetes environments,
 distributed workers, and a web dashboard are outside this initial scope.
+
+See the [HTTP recorder design](docs/design/http-recorder.md) for the proposed
+recording scope, privacy boundaries, and implementation sequence.
 
 ## Engineering principles
 
