@@ -3,8 +3,10 @@
 ## Project status and supported versions
 
 Prolane is in its foundation stage and has no published releases. The current
-CLI prints the project name and tagline; traffic capture, replay, and deployment
-verification are not implemented.
+CLI can forward HTTP requests through a loopback listener to one configured
+target. Use controlled synthetic traffic: end-to-end headers and bodies,
+including credentials, are forwarded without privacy filtering. Traffic capture,
+replay, and deployment verification are not implemented.
 
 During this stage, security fixes target the latest code on `main`. Older commits
 do not receive separate security backports.

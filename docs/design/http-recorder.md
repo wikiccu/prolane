@@ -1,9 +1,9 @@
 # HTTP recorder design
 
-Status: proposed, with command parsing, help, and argument validation
-implemented. Forwarding, capture, and persistence below remain unimplemented.
-This document scopes the first recorder increments, not a production traffic
-capture guarantee.
+Status: forwarding implemented, including command validation, fixed-target
+routing, limits, cancellation, and shutdown. Capture, privacy filtering for
+persisted data, and persistence below remain proposed. This document scopes the
+first recorder increments, not a production traffic capture guarantee.
 
 ## Goal and workflow
 
@@ -19,14 +19,14 @@ prolane record --listen 127.0.0.1:8080 --target http://127.0.0.1:3000 --output .
 
 Clients send requests to the listener; Prolane forwards them to the fixed target
 and returns the upstream response. Recording must not silently change the
-forwarded payload. The example currently validates options and exits with an
-error explaining that recording is not implemented. Only loopback listener IPs
+forwarded payload. The example currently forwards traffic until interrupted;
+`--output` remains required but no recording is written. Only loopback listener IPs
 are accepted; remote exposure needs a separate security review before it becomes
 supported behavior.
 
 Replay, comparison, verification verdicts, databases, distributed workers,
 configuration files, and a dashboard are outside this design. CONNECT tunnels,
-protocol upgrades, WebSockets, and long-lived streaming exchanges are also
+asterisk-form requests, protocol upgrades, WebSockets, and long-lived streaming exchanges are also
 outside the first slice. Reject unsupported tunnels and upgrades before
 contacting the target; streaming protocols need a separate timeout and capture
 design.
@@ -56,9 +56,15 @@ without following them.
 The command owns the server, transport, and output file. Request cancellation
 must reach the upstream exchange. Give header reads, request/response transfer,
 dialing, response-header waits, idle connections, and shutdown finite limits.
-Choose and document concrete defaults with the forwarding implementation;
-do not inherit unlimited waits from zero-valued settings. Bound active
-exchanges and reject excess work rather than creating an unbounded queue.
+Current values are documented in the [README](../../README.md#recorder-command-in-progress):
+64 active exchanges, 64 KiB header limits, a 30-second exchange context and
+client transfer timeouts, a 10-second response-header timeout, 5-second
+header/dial/TLS and shutdown limits, and 30-second idle timeouts. Excess active
+work is rejected with HTTP 503. Request bodies and responses stream without
+whole-body buffering. Malformed query parameters are rejected before forwarding
+so the standard proxy does not silently discard them.
+Credentialed or opaque request URIs are also rejected. `OPTIONS *` receives
+HTTP 501 explicitly instead of the HTTP server's implicit local response.
 
 On interruption, stop accepting requests, allow active exchanges to finish up
 to a deadline, then cancel and close remaining exchanges. Wait for
@@ -165,10 +171,9 @@ synchronization for lifecycle checks rather than arbitrary sleeps.
 
 Implement in separate reviewable increments:
 
-1. Implemented: `record` command parsing, help, and argument validation. It
-   explicitly reports that recording is not implemented.
-2. Add forwarding with fixed-target routing, resource limits, cancellation, and
-   shutdown, then validate the protocol behavior.
+1. Implemented: `record` command parsing, help, and argument validation.
+2. Implemented: forwarding with fixed-target routing, resource limits,
+   cancellation, and shutdown. Recording remains explicitly unimplemented.
 3. Review the versioned model and implement privacy exclusions before adding
    metadata persistence and its failure handling.
 4. Add opt-in bounded request/response capture with explicit completeness state.

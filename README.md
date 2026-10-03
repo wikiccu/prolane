@@ -13,7 +13,9 @@ Those comparisons should provide reproducible evidence for deployment decisions.
 
 **Implemented:** a Go module and a CLI entrypoint that prints the project name
 and tagline, root help, and a `record` command with help and argument validation.
-The recorder does not yet forward traffic or write recordings.
+The command forwards HTTP traffic to one fixed target with bounded active
+requests, timeouts, cancellation, and graceful shutdown. It does not yet capture
+traffic or write recordings.
 
 **Planned:** HTTP recording, replay, baseline/candidate comparison, and
 deterministic verification results. Prolane cannot yet verify a software change.
@@ -53,7 +55,7 @@ go run ./cmd/prolane record --help
 | --- | --- | --- |
 | `--listen` | `127.0.0.1:8080` | A loopback IP with a numeric port from 1 to 65535; bracket IPv6 addresses, such as `[::1]:8080` |
 | `--target` | Required | An absolute HTTP or HTTPS URL with a host; a base path is allowed, credentials/query/fragment are rejected, and an explicit port must be from 1 to 65535 |
-| `--output` | Required | A nonblank recording file path; filesystem checks and creation are deferred until persistence is implemented |
+| `--output` | Required | A nonblank path reserved for future recording; it is not read, created, or overwritten yet |
 
 For example, using the built executable:
 
@@ -61,12 +63,40 @@ For example, using the built executable:
 prolane record --target http://127.0.0.1:3000 --output ./traffic.jsonl
 ```
 
-Currently, valid options produce a message on stderr that recording is not
-implemented and exit with code 1. The command does not open a listener, contact
-the target, or create an output file. Unknown commands, invalid options, and
-positional recorder arguments exit with code 2. Root invocation and help exit
-with code 0; help uses stdout. These are current CLI behaviors, not verification
-PASS/FAIL semantics. To show root help, use `prolane --help`.
+On Windows PowerShell, invoke the built executable as `.\prolane.exe`.
+Use only controlled synthetic traffic at this stage. The command prints a
+forwarding-only notice on stderr, serves requests until interrupted, and creates
+no recording file. Stop it with Ctrl+C. Successful shutdown exits with code 0;
+startup or shutdown failure exits with code 1. Unknown commands, invalid options,
+and positional recorder arguments exit with code 2. Root invocation and help
+exit with code 0; help uses stdout. These are current CLI behaviors, not
+verification PASS/FAIL semantics. To show root help, use `prolane --help`.
+
+Forwarding uses the target's Host and joins its base path with the incoming
+path. Client-supplied forwarding headers are removed; end-to-end headers and
+bodies, including credentials, otherwise reach the target unchanged. Upstream
+redirects are returned to the client. Environment HTTP proxy settings are
+ignored, TLS certificate verification remains enabled, and automatic upstream
+decompression is disabled.
+
+| Limit | Current value |
+| --- | --- |
+| Active forwarded requests | 64; excess requests receive HTTP 503 |
+| Client request headers / upstream response headers | Configured limit of 64 KiB each |
+| Client header read / upstream dial / TLS handshake | 5 seconds each |
+| Upstream response-header wait | 10 seconds |
+| Request context / client request read / response write | 30 seconds each |
+| Idle client and upstream connections | 30 seconds |
+| Graceful shutdown | 5 seconds, then remaining exchanges are canceled and connections closed |
+
+CONNECT, `OPTIONS *`, and request upgrades receive HTTP 501 before forwarding.
+Credentialed or opaque request URIs and malformed query parameters receive
+HTTP 400 rather than being silently rewritten. Upstream
+protocol upgrades and event-stream responses receive HTTP 502; they are detected
+after contacting the target. Other upstream failures receive a generic HTTP 502,
+or HTTP 504 for timeouts before response headers have been sent. Bodies stream
+without whole-body buffering; long-lived streaming protocols are unsupported.
+Logs omit request data and raw upstream errors.
 
 ## Development commands
 
