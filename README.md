@@ -17,6 +17,9 @@ The command forwards HTTP traffic to one fixed target with bounded active
 requests, timeouts, cancellation, and graceful shutdown. It does not yet capture
 traffic or write recordings.
 
+An initial [metadata-only recording model](docs/design/http-recorder.md#recording-model-version-1)
+is defined for the next persistence increment; the command does not emit it yet.
+
 **Planned:** HTTP recording, replay, baseline/candidate comparison, and
 deterministic verification results. Prolane cannot yet verify a software change.
 

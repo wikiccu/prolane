@@ -1,9 +1,10 @@
 # HTTP recorder design
 
 Status: forwarding implemented, including command validation, fixed-target
-routing, limits, cancellation, and shutdown. Capture, privacy filtering for
-persisted data, and persistence below remain proposed. This document scopes the
-first recorder increments, not a production traffic capture guarantee.
+routing, limits, cancellation, and shutdown. The metadata-only version 1 model
+is defined; constructing records from traffic, persistence, and richer capture
+remain unimplemented. This document scopes the first recorder increments, not
+a production traffic capture guarantee.
 
 ## Goal and workflow
 
@@ -80,10 +81,11 @@ Forwarding and persistence use separate views of the exchange. Excluding a
 field from the recording must not remove it from traffic sent to the target
 or the response returned to the client.
 
-Before the first persistence increment, implement an explicit header allowlist.
-Do not persist `Authorization`, `Proxy-Authorization`, `Cookie`, or `Set-Cookie`.
-Unknown headers stay excluded because custom headers can carry secrets. Keep
-multiple values for allowed headers; do not flatten them into one string.
+Version 1 excludes all headers from its model; its initial allowlist is empty.
+Before adding header capture, define an explicit allowlist. Do not persist
+`Authorization`, `Proxy-Authorization`, `Cookie`, or `Set-Cookie`. Unknown headers
+stay excluded because custom headers can carry secrets. Keep multiple values
+for any headers later allowed; do not flatten them into one string.
 
 Initially omit query values and bodies from recordings. Introduce their capture
 only through a reviewed policy and explicit opt-in; bounded body capture must
@@ -107,32 +109,104 @@ depends on the destination directory's access controls. Do not create missing
 directories or write recordings to logs. Before capturing real traffic, revisit
 path/query sanitization, body rules, retention, and file access controls.
 
-## Proposed recording model
+## Recording model: version 1
 
-Start with JSONL: one completed exchange per line, encoded as JSON. This is
-easy to inspect and process incrementally without an external dependency.
-A binary format is deferred until measurements justify it. Exact field names,
-body encoding, and compatibility rules belong to the separate versioned-model
-increment; this document does not establish a file schema.
+The [Go model](../../internal/record/model.go) defines metadata for one completed
+forwarding attempt. It contains no raw headers, query values, bodies, full URLs,
+or raw error messages. It is not yet connected to the proxy or a file writer.
+Paths can still contain sensitive data; this remains a controlled synthetic
+traffic design, not general sanitization.
 
-The model should cover:
+Use UTF-8 JSONL: one compact JSON object followed by LF per exchange, with no
+array wrapper. Keep zero-valued required fields explicit. Omit `response` when
+no upstream response headers were observed, and omit `failure` on success;
+neither field is encoded as `null`. The model uses `omitzero` tags supported by
+Go's [standard JSON encoding](https://pkg.go.dev/encoding/json/v2).
 
-- An explicit schema version and a session-local exchange identifier.
-- Request method, target-relative path, allowed headers, and capture state for
-  query values and bodies.
-- Upstream response status, allowed headers, and body capture state, or an
-  explicit transport/cancellation failure when no response exists.
-- Start timestamp and elapsed forwarding time, with the timing boundary defined
-  separately from file writing.
-- Omission, redaction, truncation, and interruption metadata.
+| Field | Version 1 contract |
+| --- | --- |
+| `schema_version` | Required integer `1` |
+| `id` | Required string of positive decimal digits, without leading zeros; unique within one recording, assigned from `"1"` as requests are admitted |
+| `started_at` | Required nonzero UTC timestamp, when the request is admitted for forwarding; RFC 3339 with up to nanosecond precision, ending in `Z` |
+| `duration_ns` | Required nonnegative signed 64-bit integer; elapsed forwarding time in nanoseconds, excluding encoding and file writes |
+| `request.method` | Required HTTP method as received |
+| `request.path` | Required escaped inbound path, before joining the configured target base path; no query, fragment, or authority; an empty path remains explicit |
+| `request.query_omitted` | Required boolean; `true` if the inbound URL contained a query or a bare `?`, otherwise `false`; no query keys or values are stored |
+| `request.headers_omitted`, `request.body_omitted` | Required booleans, both `true`; omission does not mean empty headers or an empty body |
+| `response.status_code` | Required when `response` exists; observed upstream status from `100` through `999`, never the proxy's generated gateway status |
+| `response.headers_omitted`, `response.body_omitted` | Required when `response` exists, both `true` |
+| `failure` | Optional fixed code: `upstream_error`, `timeout`, `canceled`, or `incomplete_response`; an empty code is omitted |
 
-Represent arbitrary captured body bytes losslessly; do not assume UTF-8.
-Lines are written as handlers finish; their order is not a replay schedule.
-Never silently reinterpret a schema version.
-A future reader must reject unknown versions and incomplete lines. Missing or
-modified request data must be distinguishable from an empty value; future replay
-must reject insufficient recordings unless an explicit substitution policy
-makes them usable. Such recordings cannot establish equivalent replay by default.
+IDs are strings so readers do not need floating-point JSON numbers to preserve
+their precision. IDs reflect admission order; lines are written as handlers
+finish, and neither establishes a replay schedule. Store the start timestamp in
+UTC and measure duration from the original monotonic clock reading before
+converting the timestamp for storage. Go's
+[time JSON encoding](https://pkg.go.dev/time#Time.MarshalJSON) supports the chosen
+timestamp representation.
+
+A successful exchange has `response` and no `failure`. An unsuccessful exchange
+has `failure`; it also has `response` if upstream headers were observed before
+the failure. `upstream_error` covers connection/TLS failures and unsupported
+upstream protocols. `incomplete_response` covers interrupted response transfer
+when it is not classified as a timeout or cancellation. A status alone is not
+proof that the client received the complete response. Interim informational
+responses are not separate exchanges.
+
+For illustration, shown indented here rather than as a single JSONL line:
+
+```json
+{
+  "schema_version": 1,
+  "id": "1",
+  "started_at": "2026-10-03T08:30:00Z",
+  "duration_ns": 10500000,
+  "request": {
+    "method": "GET",
+    "path": "/items%2Fexample",
+    "query_omitted": true,
+    "headers_omitted": true,
+    "body_omitted": true
+  },
+  "response": {
+    "status_code": 200,
+    "headers_omitted": true,
+    "body_omitted": true
+  }
+}
+```
+
+A timeout before upstream headers arrive has no response object:
+
+```json
+{
+  "schema_version": 1,
+  "id": "2",
+  "started_at": "2026-10-03T08:30:01Z",
+  "duration_ns": 10000000000,
+  "request": {
+    "method": "POST",
+    "path": "/items",
+    "query_omitted": false,
+    "headers_omitted": true,
+    "body_omitted": true
+  },
+  "failure": "timeout"
+}
+```
+
+The Go types describe the shape, not a validator. A future writer must enforce
+these invariants before emitting records. A future reader must reject unknown
+versions, invalid/missing fields, unknown fields or failure codes, duplicate
+object keys/IDs, and incomplete lines. Do not reinterpret excluded data as empty
+values or assume version 1 records support equivalent replay. Replay would need
+an explicit reconstruction policy before using them for verification.
+
+Changing field meaning, shape, or capture policy requires a reviewed schema
+version change; do not silently add captured data to version 1. Header selection,
+query sanitization, lossless binary body encoding, and truncation metadata are
+deferred until their capture increment. No decoder, migration, or generic
+serialization framework is introduced in this step.
 
 ## Persistence and failures
 
@@ -174,9 +248,12 @@ Implement in separate reviewable increments:
 1. Implemented: `record` command parsing, help, and argument validation.
 2. Implemented: forwarding with fixed-target routing, resource limits,
    cancellation, and shutdown. Recording remains explicitly unimplemented.
-3. Review the versioned model and implement privacy exclusions before adding
-   metadata persistence and its failure handling.
-4. Add opt-in bounded request/response capture with explicit completeness state.
+3. Implemented: metadata-only version 1 model with explicit omissions and fixed
+   failure codes; it is not yet populated or persisted.
+4. Construct metadata records and enforce the capture exclusions before adding
+   persistence and its failure handling.
+5. Add opt-in bounded request/response capture under a reviewed schema version
+   with explicit completeness state.
 
 Privacy exclusions move ahead of persistence so no intermediate increment
 casually stores credentials. Replay and comparison get their own designs after
