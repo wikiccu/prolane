@@ -5,8 +5,13 @@
 Prolane is in its foundation stage and has no published releases. The current
 CLI can forward HTTP requests through a loopback listener to one configured
 target. Use controlled synthetic traffic: end-to-end headers and bodies,
-including credentials, are forwarded without privacy filtering. Traffic capture,
-replay, and deployment verification are not implemented.
+including credentials, are forwarded without privacy filtering. Metadata-only
+recording stores request method/path, timing, upstream status, and fixed failure
+codes; headers, query data, and bodies are omitted. Paths may still contain
+sensitive data. Recording files are sensitive local artifacts: Unix-like systems
+request owner-only permissions, while Windows protection depends on the
+destination directory's access controls. Replay and deployment verification are
+not implemented.
 
 During this stage, security fixes target the latest code on `main`. Older commits
 do not receive separate security backports.

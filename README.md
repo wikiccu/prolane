@@ -14,13 +14,15 @@ Those comparisons should provide reproducible evidence for deployment decisions.
 **Implemented:** a Go module and a CLI entrypoint that prints the project name
 and tagline, root help, and a `record` command with help and argument validation.
 The command forwards HTTP traffic to one fixed target with bounded active
-requests, timeouts, cancellation, and graceful shutdown. It does not yet capture
-traffic or write recordings.
+requests, timeouts, cancellation, and graceful shutdown. It writes version 1
+exchange metadata as JSONL to a new file; headers, query data, and bodies are
+omitted. Paths may contain sensitive data.
 
 An initial [metadata-only recording model](docs/design/http-recorder.md#recording-model-version-1)
-is defined for the next persistence increment; the command does not emit it yet.
+records request method/path, timing, observed upstream status, and fixed failure
+codes. These records are insufficient for equivalent replay.
 
-**Planned:** HTTP recording, replay, baseline/candidate comparison, and
+**Planned:** opt-in bounded body capture, replay, baseline/candidate comparison, and
 deterministic verification results. Prolane cannot yet verify a software change.
 
 ## Run from source
@@ -58,7 +60,7 @@ go run ./cmd/prolane record --help
 | --- | --- | --- |
 | `--listen` | `127.0.0.1:8080` | A loopback IP with a numeric port from 1 to 65535; bracket IPv6 addresses, such as `[::1]:8080` |
 | `--target` | Required | An absolute HTTP or HTTPS URL with a host; a base path is allowed, credentials/query/fragment are rejected, and an explicit port must be from 1 to 65535 |
-| `--output` | Required | A nonblank path reserved for future recording; it is not read, created, or overwritten yet |
+| `--output` | Required | A new regular file in an existing writable directory; existing files are refused, including empty files |
 
 For example, using the built executable:
 
@@ -68,12 +70,28 @@ prolane record --target http://127.0.0.1:3000 --output ./traffic.jsonl
 
 On Windows PowerShell, invoke the built executable as `.\prolane.exe`.
 Use only controlled synthetic traffic at this stage. The command prints a
-forwarding-only notice on stderr, serves requests until interrupted, and creates
-no recording file. Stop it with Ctrl+C. Successful shutdown exits with code 0;
-startup or shutdown failure exits with code 1. Unknown commands, invalid options,
+metadata-only recording notice on stderr and serves requests until interrupted.
+Stop it with Ctrl+C. Successful shutdown exits with code 0; startup, recording,
+or shutdown failure exits with code 1. Unknown commands, invalid options,
 and positional recorder arguments exit with code 2. Root invocation and help
 exit with code 0; help uses stdout. These are current CLI behaviors, not
 verification PASS/FAIL semantics. To show root help, use `prolane --help`.
+
+Each admitted forwarding attempt produces one compact JSON object and LF,
+including upstream failures and cancellations. Requests rejected before
+admission are not recorded. IDs reflect admission order; lines follow completion
+and writer-lock acquisition, so they are not a replay schedule. The file is
+created after binding the listener and before serving. Output creation failure
+closes the listener without forwarding traffic. Unix-like systems request mode
+`0600`; Windows access depends on the directory's permissions.
+
+Writes are synchronous and serialized. A recording error stops new admission
+and shuts down with an incomplete-recording error; application requests are
+never retried to repair a recording. Active handlers finish or are canceled
+before the file closes.
+Keep incomplete files for inspection: a partial last line may remain, and there
+is no crash or power-loss durability guarantee. Regular-file I/O can block on
+the filesystem; the network shutdown deadline does not cancel disk I/O.
 
 Forwarding uses the target's Host and joins its base path with the incoming
 path. Client-supplied forwarding headers are removed; end-to-end headers and
@@ -85,6 +103,8 @@ decompression is disabled.
 | Limit | Current value |
 | --- | --- |
 | Active forwarded requests | 64; excess requests receive HTTP 503 |
+| Request method plus escaped inbound path | 8 KiB combined; excess receives HTTP 414 before forwarding |
+| Encoded JSONL record including LF | 64 KiB; exceeding it stops recording |
 | Client request headers / upstream response headers | Configured limit of 64 KiB each |
 | Client header read / upstream dial / TLS handshake | 5 seconds each |
 | Upstream response-header wait | 10 seconds |

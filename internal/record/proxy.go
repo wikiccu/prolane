@@ -21,9 +21,30 @@ const (
 	shutdownTimeout   = 5 * time.Second
 )
 
-// Serve forwards to the validated target until ctx is canceled. It does not
-// capture traffic or create recording files.
-func Serve(ctx context.Context, listen string, target *url.URL) (result error) {
+type exchangeContextKey struct{}
+
+// Serve forwards to the validated target and writes metadata to a new output
+// file until ctx is canceled or recording fails. Headers and bodies are omitted.
+func Serve(ctx context.Context, listen string, target *url.URL, output string) (result error) {
+	listener, err := net.Listen("tcp", listen)
+	if err != nil {
+		return errors.New("failed to bind HTTP listener")
+	}
+	defer func() {
+		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			result = errors.Join(result, errors.New("failed to close HTTP listener"))
+		}
+	}()
+	file, err := os.OpenFile(output, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return errors.New("failed to create recording file; use a new path in an existing writable directory")
+	}
+	recording := &recording{file: file, failed: make(chan struct{})}
+	defer func() { result = errors.Join(result, recording.close()) }()
+	if info, err := file.Stat(); err != nil || !info.Mode().IsRegular() {
+		return errors.New("recording output must be a regular file")
+	}
+
 	transport := &http.Transport{
 		DialContext:            (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
 		TLSHandshakeTimeout:    5 * time.Second,
@@ -43,6 +64,10 @@ func Serve(ctx context.Context, listen string, target *url.URL) (result error) {
 		Transport: transport,
 		ErrorLog:  quietLog,
 		ModifyResponse: func(r *http.Response) error {
+			exchange := r.Request.Context().Value(exchangeContextKey{}).(*Exchange)
+			exchange.Response = &ResponseMetadata{
+				StatusCode: r.StatusCode, HeadersOmitted: true, BodyOmitted: true,
+			}
 			mediaType, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 			if r.StatusCode == http.StatusSwitchingProtocols || mediaType == "text/event-stream" {
 				return errors.New("unsupported upstream protocol")
@@ -50,9 +75,10 @@ func Serve(ctx context.Context, listen string, target *url.URL) (result error) {
 			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			exchange := r.Context().Value(exchangeContextKey{}).(*Exchange)
+			exchange.Failure = classifyFailure(errors.Join(err, r.Context().Err()))
 			status := http.StatusBadGateway
-			var networkError net.Error
-			if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &networkError) && networkError.Timeout()) {
+			if exchange.Failure == FailureTimeout {
 				status = http.StatusGatewayTimeout
 			}
 			if r.Context().Err() == nil {
@@ -87,6 +113,11 @@ func Serve(ctx context.Context, listen string, target *url.URL) (result error) {
 				http.Error(w, "invalid query parameters", http.StatusBadRequest)
 				return
 			}
+			path := r.URL.EscapedPath()
+			if len(r.Method)+len(path) > maxMetadataBytes {
+				http.Error(w, "request metadata exceeds recording limit", http.StatusRequestURITooLong)
+				return
+			}
 			select {
 			case active <- struct{}{}:
 				defer func() { <-active }()
@@ -94,9 +125,42 @@ func Serve(ctx context.Context, listen string, target *url.URL) (result error) {
 				http.Error(w, "too many active requests", http.StatusServiceUnavailable)
 				return
 			}
+			id, admitted := recording.admit()
+			if !admitted {
+				http.Error(w, "recording is stopping", http.StatusServiceUnavailable)
+				return
+			}
+			defer recording.handlers.Done()
+			started := time.Now()
+			exchange := Exchange{
+				SchemaVersion: SchemaVersion,
+				ID:            id,
+				StartedAt:     started.UTC(),
+				Request: RequestMetadata{
+					Method: r.Method, Path: path,
+					QueryOmitted:   r.URL.RawQuery != "" || r.URL.ForceQuery,
+					HeadersOmitted: true, BodyOmitted: true,
+				},
+			}
 			requestCtx, cancel := context.WithTimeout(r.Context(), exchangeTimeout)
 			defer cancel()
+			completed := false
+			defer func() {
+				exchange.DurationNS = time.Since(started).Nanoseconds()
+				if err := requestCtx.Err(); err != nil {
+					exchange.Failure = classifyFailure(err)
+				} else if !completed {
+					// ReverseProxy aborts interrupted transfers with ErrAbortHandler.
+					// Persist the failure while allowing that panic to propagate.
+					exchange.Failure = FailureIncompleteResponse
+				} else if exchange.Response == nil && exchange.Failure == "" {
+					exchange.Failure = FailureUpstream
+				}
+				recording.write(&exchange)
+			}()
+			requestCtx = context.WithValue(requestCtx, exchangeContextKey{}, &exchange)
 			proxy.ServeHTTP(w, r.WithContext(requestCtx))
+			completed = true
 		}),
 	}
 	defer func() {
@@ -107,10 +171,6 @@ func Serve(ctx context.Context, listen string, target *url.URL) (result error) {
 		transport.CloseIdleConnections()
 	}()
 
-	listener, err := net.Listen("tcp", listen)
-	if err != nil {
-		return errors.New("failed to bind HTTP listener")
-	}
 	served := make(chan error, 1)
 	go func() { served <- server.Serve(listener) }()
 	select {
@@ -120,6 +180,7 @@ func Serve(ctx context.Context, listen string, target *url.URL) (result error) {
 		}
 		return nil
 	case <-ctx.Done():
+	case <-recording.failed:
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
@@ -133,4 +194,18 @@ func Serve(ctx context.Context, listen string, target *url.URL) (result error) {
 		return errors.New("HTTP server stopped unexpectedly")
 	}
 	return nil
+}
+
+func classifyFailure(err error) FailureCode {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return FailureTimeout
+	}
+	if errors.Is(err, context.Canceled) {
+		return FailureCanceled
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) && networkError.Timeout() {
+		return FailureTimeout
+	}
+	return FailureUpstream
 }

@@ -6,8 +6,8 @@ import "time"
 const SchemaVersion = 1
 
 // Exchange describes one completed forwarding attempt. Its zero value is not
-// a valid record; a future writer must enforce the documented version and field
-// invariants before encoding it. No live traffic is captured by these types.
+// a valid record. The forwarding handler constructs the required metadata and
+// omission flags; the file writer bounds each encoded JSONL record.
 type Exchange struct {
 	SchemaVersion int               `json:"schema_version"`
 	ID            string            `json:"id"`

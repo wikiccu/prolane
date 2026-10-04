@@ -23,11 +23,11 @@ func runRecord(args []string) int {
 	flags.SetOutput(io.Discard)
 	listen := flags.String("listen", "127.0.0.1:8080", "loopback IP:port to listen on")
 	target := flags.String("target", "", "upstream HTTP or HTTPS URL (required)")
-	output := flags.String("output", "", "recording file path (required)")
+	output := flags.String("output", "", "new recording file in an existing directory (required)")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			flags.SetOutput(os.Stdout)
-			fmt.Println("Usage: prolane record --target URL --output PATH [--listen IP:port]\n\nForwards HTTP traffic until interrupted. Recording is not implemented yet; no output file is created.")
+			fmt.Println("Usage: prolane record --target URL --output PATH [--listen IP:port]\n\nForwards HTTP traffic and writes metadata-only JSONL until interrupted. Headers, query data, and bodies are omitted; paths may be sensitive. Existing output files are refused.")
 			flags.PrintDefaults()
 			return 0
 		}
@@ -46,8 +46,8 @@ func runRecord(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	fmt.Fprintln(os.Stderr, "prolane record: forwarding only; recording is not implemented yet and --output is not written")
-	if err := record.Serve(ctx, *listen, upstream); err != nil {
+	fmt.Fprintln(os.Stderr, "prolane record: recording metadata only; headers, query data, and bodies are omitted; paths may be sensitive")
+	if err := record.Serve(ctx, *listen, upstream, *output); err != nil {
 		fmt.Fprintln(os.Stderr, "prolane record:", err)
 		return 1
 	}

@@ -1,10 +1,10 @@
 # HTTP recorder design
 
 Status: forwarding implemented, including command validation, fixed-target
-routing, limits, cancellation, and shutdown. The metadata-only version 1 model
-is defined; constructing records from traffic, persistence, and richer capture
-remain unimplemented. This document scopes the first recorder increments, not
-a production traffic capture guarantee.
+routing, limits, cancellation, and shutdown. Metadata-only version 1 JSONL
+persistence is implemented; headers, query data, and bodies remain excluded.
+Richer capture remains unimplemented. This document scopes the first recorder
+increments, not a production traffic capture guarantee.
 
 ## Goal and workflow
 
@@ -20,8 +20,8 @@ prolane record --listen 127.0.0.1:8080 --target http://127.0.0.1:3000 --output .
 
 Clients send requests to the listener; Prolane forwards them to the fixed target
 and returns the upstream response. Recording must not silently change the
-forwarded payload. The example currently forwards traffic until interrupted;
-`--output` remains required but no recording is written. Only loopback listener IPs
+forwarded payload. The example forwards traffic until interrupted and writes
+metadata to a new `--output` file. Only loopback listener IPs
 are accepted; remote exposure needs a separate security review before it becomes
 supported behavior.
 
@@ -66,6 +66,9 @@ whole-body buffering. Malformed query parameters are rejected before forwarding
 so the standard proxy does not silently discard them.
 Credentialed or opaque request URIs are also rejected. `OPTIONS *` receives
 HTTP 501 explicitly instead of the HTTP server's implicit local response.
+Request method and escaped inbound path are limited to 8 KiB combined; excess
+metadata receives HTTP 414 before forwarding. Requests rejected before admission
+do not consume an exchange ID or produce a recording line.
 
 On interruption, stop accepting requests, allow active exchanges to finish up
 to a deadline, then cancel and close remaining exchanges. Wait for
@@ -113,7 +116,8 @@ path/query sanitization, body rules, retention, and file access controls.
 
 The [Go model](../../internal/record/model.go) defines metadata for one completed
 forwarding attempt. It contains no raw headers, query values, bodies, full URLs,
-or raw error messages. It is not yet connected to the proxy or a file writer.
+or raw error messages. The proxy populates the model and a single file writer
+persists it after each admitted forwarding attempt finishes.
 Paths can still contain sensitive data; this remains a controlled synthetic
 traffic design, not general sanitization.
 
@@ -152,6 +156,9 @@ upstream protocols. `incomplete_response` covers interrupted response transfer
 when it is not classified as a timeout or cancellation. A status alone is not
 proof that the client received the complete response. Interim informational
 responses are not separate exchanges.
+Success describes the proxy handler's observed completion. The HTTP server can
+still fail a final buffered client flush after the handler returns; records do
+not confirm end-client receipt.
 
 For illustration, shown indented here rather than as a single JSONL line:
 
@@ -195,10 +202,12 @@ A timeout before upstream headers arrive has no response object:
 }
 ```
 
-The Go types describe the shape, not a validator. A future writer must enforce
-these invariants before emitting records. A future reader must reject unknown
-versions, invalid/missing fields, unknown fields or failure codes, duplicate
-object keys/IDs, and incomplete lines. Do not reinterpret excluded data as empty
+The Go types describe the shape, not a general-purpose validator. The handler
+constructs required fields and omission flags from admitted HTTP exchanges; the
+writer bounds the encoded record and checks encoding and write errors. There is
+no public API for writing arbitrary model values. A future reader must reject
+unknown versions, invalid/missing fields, unknown fields or failure codes,
+duplicate object keys/IDs, and incomplete lines. Do not reinterpret excluded data as empty
 values or assume version 1 records support equivalent replay. Replay would need
 an explicit reconstruction policy before using them for verification.
 
@@ -206,21 +215,25 @@ Changing field meaning, shape, or capture policy requires a reviewed schema
 version change; do not silently add captured data to version 1. Header selection,
 query sanitization, lossless binary body encoding, and truncation metadata are
 deferred until their capture increment. No decoder, migration, or generic
-serialization framework is introduced in this step.
+serialization framework is introduced.
 
 ## Persistence and failures
 
-Use one file writer with a mutex around each complete encoded record. Bound
-record size as well as active exchanges; synchronous writes provide backpressure
-without another queue or worker. This serializes disk writes, which is an
-acceptable initial throughput ceiling; revisit it only after measurement.
+One file writer holds a mutex around encoding and writing each complete record.
+Encoded JSONL records, including LF, are capped at 64 KiB. Bounding method/path
+metadata before forwarding also bounds the encoding allocation. Synchronous
+writes provide backpressure without another queue or worker. This serializes
+disk writes, which is an acceptable initial throughput ceiling; revisit it only
+after measurement.
 
-Check encoding, write, short-write, and close errors. A write failure stops new
-admission and triggers shutdown with a nonzero exit. Requests already forwarded
-may have changed the application, and responses already sent cannot be undone.
+Encoding, write, short-write, and close errors are checked. A recording failure
+stops new admission and triggers shutdown with a nonzero exit. Requests already
+forwarded may have changed the application, and responses already sent cannot be undone.
 Report the recording as incomplete; do not retry application requests to repair
 the recording. A crash can leave a partial final line, and successful writes
-alone do not guarantee survival of a power failure.
+alone do not guarantee survival of a power failure. There is no explicit fsync
+or crash-durability promise. Blocking regular-file I/O is governed by the
+filesystem; the network shutdown deadline cannot interrupt it.
 
 Invalid configuration, output creation failure, or listener bind failure must
 fail startup before accepting traffic. Upstream connection failure returns a
@@ -228,6 +241,13 @@ generic gateway error and records a failure rather than inventing a response.
 If response forwarding fails after headers were sent, do not claim the client
 received a complete response. Client cancellation and shutdown interruption
 remain distinct from a successful exchange.
+Bind the listener before exclusive output creation, then start serving only
+after the file is open and verified to be regular. A creation failure closes
+the listener without forwarding traffic. Keep created artifacts, including
+empty or partial files, instead of automatically deleting them on an error.
+On forced shutdown, cancel and close network exchanges, join admitted handlers,
+then close the file. The writer's admission mutex prevents new handler
+registrations from racing with that final join.
 
 Send lifecycle messages, counts, and sanitized errors to stderr. Do not log
 request URLs, headers, bodies, credentials, or raw upstream errors. Configure
@@ -247,11 +267,11 @@ Implement in separate reviewable increments:
 
 1. Implemented: `record` command parsing, help, and argument validation.
 2. Implemented: forwarding with fixed-target routing, resource limits,
-   cancellation, and shutdown. Recording remains explicitly unimplemented.
+   cancellation, and shutdown.
 3. Implemented: metadata-only version 1 model with explicit omissions and fixed
-   failure codes; it is not yet populated or persisted.
-4. Construct metadata records and enforce the capture exclusions before adding
-   persistence and its failure handling.
+   failure codes.
+4. Implemented: metadata construction, capture exclusions, exclusive JSONL
+   persistence, recording-error shutdown, and handler joining before file close.
 5. Add opt-in bounded request/response capture under a reviewed schema version
    with explicit completeness state.
 
