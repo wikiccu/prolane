@@ -96,6 +96,10 @@ not land ahead of that policy. Paths and even allowed metadata can contain
 private data, so the first recorder is suitable only for controlled synthetic
 traffic. Header filtering is not a claim of general traffic sanitization.
 
+The [bounded body capture design](body-capture.md) now defines proposed opt-in,
+version 2 fields, limits, and observation semantics. Body capture and its new
+options remain unimplemented; version 1 stays metadata-only.
+
 When body capture arrives, copy a bounded prefix while the proxy streams the
 complete body. Cap request and response captures independently before storing
 bytes in memory. Mark omitted, redacted, truncated, and interrupted data
@@ -272,8 +276,10 @@ Implement in separate reviewable increments:
    failure codes.
 4. Implemented: metadata construction, capture exclusions, exclusive JSONL
    persistence, recording-error shutdown, and handler joining before file close.
-5. Add opt-in bounded request/response capture under a reviewed schema version
-   with explicit completeness state.
+5. Designed, not implemented: [opt-in bounded body capture](body-capture.md),
+   with version 2 fields and independent completeness/truncation state.
+6. Implement request body opt-in and version 2 emission together, then response
+   body opt-in in a separate increment.
 
 Privacy exclusions move ahead of persistence so no intermediate increment
 casually stores credentials. Replay and comparison get their own designs after

@@ -22,8 +22,9 @@ An initial [metadata-only recording model](docs/design/http-recorder.md#recordin
 records request method/path, timing, observed upstream status, and fixed failure
 codes. These records are insufficient for equivalent replay.
 
-**Planned:** opt-in bounded body capture, replay, baseline/candidate comparison, and
-deterministic verification results. Prolane cannot yet verify a software change.
+**Planned:** [opt-in bounded body capture](docs/design/body-capture.md), replay,
+baseline/candidate comparison, and deterministic verification results.
+Prolane cannot yet verify a software change.
 
 ## Run from source
 
